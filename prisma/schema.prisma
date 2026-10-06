@@ -1,0 +1,281 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  BUSINESS
+  DRIVER
+  ADMIN
+}
+
+enum ServiceLevel {
+  standard
+  express
+  priority
+  economy
+  same_day
+}
+
+enum ShipmentStatus {
+  BOOKED
+  PICKED_UP
+  SORTED
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  ATTEMPTED
+  EXCEPTION
+}
+
+enum ClaimStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  ADDITIONAL_INFORMATION
+  RESOLVED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      UserRole @default(CUSTOMER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  customer  Customer?
+  business  Business?
+  driver    Driver?
+  apiKeys   ApiKey[]
+  auditLogs AuditLog[]
+}
+
+model Customer {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id])
+  phone     String?
+  addresses Address[]
+  shipments Shipment[]
+  quotes    Quote[]
+  bookings  Booking[]
+  claims    Claim[]
+  invoices  Invoice[]
+}
+
+model Business {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id])
+  companyName  String
+  abn          String?
+  customPricing Json?
+  webhooks     Webhook[]
+}
+
+model Address {
+  id         String   @id @default(cuid())
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  label      String?
+  suburb     String
+  state      String
+  postcode   String
+  line1      String?
+  country    String   @default("AU")
+}
+
+model Depot {
+  id        String   @id @default(cuid())
+  name      String
+  suburb    String
+  state     String
+  postcode  String
+  lat       Float?
+  lng       Float?
+  vehicles  Vehicle[]
+  drivers   Driver[]
+}
+
+model Driver {
+  id        String    @id @default(cuid())
+  userId    String?   @unique
+  user      User?     @relation(fields: [userId], references: [id])
+  depotId   String?
+  depot     Depot?    @relation(fields: [depotId], references: [id])
+  name      String
+  phone     String?
+  vehicle   Vehicle?
+  shipments Shipment[]
+}
+
+model Vehicle {
+  id         String  @id @default(cuid())
+  registration String
+  depotId    String?
+  depot      Depot?  @relation(fields: [depotId], references: [id])
+  driverId   String? @unique
+  driver     Driver? @relation(fields: [driverId], references: [id])
+}
+
+model Quote {
+  id           String   @id @default(cuid())
+  customerId   String?
+  customer     Customer? @relation(fields: [customerId], references: [id])
+  requestJson  Json
+  resultJson   Json
+  createdAt    DateTime @default(now())
+  bookings     Booking[]
+}
+
+model Booking {
+  id             String   @id @default(cuid())
+  customerId     String?
+  customer       Customer? @relation(fields: [customerId], references: [id])
+  quoteId        String?
+  quote          Quote?   @relation(fields: [quoteId], references: [id])
+  trackingNumber String   @unique
+  serviceCode    String
+  serviceLevel   ServiceLevel
+  priceAud       Decimal  @db.Decimal(10, 2)
+  status         ShipmentStatus @default(BOOKED)
+  createdAt      DateTime @default(now())
+  shipment       Shipment?
+  payment        Payment?
+}
+
+model Shipment {
+  id             String   @id @default(cuid())
+  bookingId      String?  @unique
+  booking        Booking? @relation(fields: [bookingId], references: [id])
+  customerId     String?
+  customer       Customer? @relation(fields: [customerId], references: [id])
+  driverId       String?
+  driver         Driver?  @relation(fields: [driverId], references: [id])
+  trackingNumber String   @unique
+  status         ShipmentStatus @default(BOOKED)
+  originSuburb   String
+  originState    String
+  originPostcode String
+  destSuburb     String
+  destState      String
+  destPostcode   String
+  items          ShipmentItem[]
+  events         TrackingEvent[]
+  attempts       DeliveryAttempt[]
+  redeliveries   Redelivery[]
+  notifications  Notification[]
+  claims         Claim[]
+}
+
+model ShipmentItem {
+  id          String   @id @default(cuid())
+  shipmentId  String
+  shipment    Shipment @relation(fields: [shipmentId], references: [id])
+  packageType String
+  quantity    Int
+  weightKg    Float
+  lengthCm    Float
+  widthCm     Float
+  heightCm    Float
+}
+
+model TrackingEvent {
+  id          String         @id @default(cuid())
+  shipmentId  String
+  shipment    Shipment       @relation(fields: [shipmentId], references: [id])
+  status      ShipmentStatus
+  label       String
+  description String
+  location    String
+  occurredAt  DateTime
+}
+
+model DeliveryAttempt {
+  id          String   @id @default(cuid())
+  shipmentId  String
+  shipment    Shipment @relation(fields: [shipmentId], references: [id])
+  attemptedAt DateTime
+  outcome     String
+  notes       String?
+}
+
+model Redelivery {
+  id          String   @id @default(cuid())
+  shipmentId  String
+  shipment    Shipment @relation(fields: [shipmentId], references: [id])
+  optionId    String
+  status      String
+  createdAt   DateTime @default(now())
+}
+
+model Payment {
+  id        String   @id @default(cuid())
+  bookingId String   @unique
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+  amountAud Decimal  @db.Decimal(10, 2)
+  status    String
+  provider  String   @default("mock")
+  createdAt DateTime @default(now())
+}
+
+model Invoice {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id])
+  totalAud   Decimal  @db.Decimal(10, 2)
+  status     String
+  issuedAt   DateTime @default(now())
+}
+
+model Notification {
+  id         String   @id @default(cuid())
+  shipmentId String?
+  shipment   Shipment? @relation(fields: [shipmentId], references: [id])
+  channel    String
+  payload    Json
+  sentAt     DateTime @default(now())
+}
+
+model Claim {
+  id         String      @id @default(cuid())
+  customerId String?
+  customer   Customer?   @relation(fields: [customerId], references: [id])
+  shipmentId String?
+  shipment   Shipment?   @relation(fields: [shipmentId], references: [id])
+  type       String
+  description String
+  status     ClaimStatus @default(SUBMITTED)
+  createdAt  DateTime    @default(now())
+}
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  label     String
+  hashedKey String
+  createdAt DateTime @default(now())
+}
+
+model Webhook {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  url        String
+  events     String[]
+  active     Boolean  @default(true)
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  meta      Json?
+  createdAt DateTime @default(now())
+}
